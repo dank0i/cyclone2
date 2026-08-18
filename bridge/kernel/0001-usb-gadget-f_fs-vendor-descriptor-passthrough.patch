@@ -1,4 +1,3 @@
-From: dank0i
 Subject: [PATCH] usb: gadget: f_fs: pass through vendor descriptors on
  vendor-class interfaces
 
@@ -23,7 +22,6 @@ Tested on a Raspberry Pi (dwc2) presenting an Xbox 360 Wireless Receiver to
 Windows: the controller is created, XInput input is delivered, and output
 reports (rumble, LED ring) arrive on the OUT endpoint.
 
-Signed-off-by: dank0i <aryanmalhotra796@gmail.com>
 ---
 --- a/drivers/usb/gadget/function/f_fs.c
 +++ b/drivers/usb/gadget/function/f_fs.c

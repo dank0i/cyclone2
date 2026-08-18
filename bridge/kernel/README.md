@@ -47,9 +47,3 @@ Developed against `6.12.75+rpt-rpi-v8`. Use source matching your own kernel.
 **A kernel update silently replaces this module with the stock one**, and
 anything relying on the passthrough stops working with no error message.
 Rebuild and re-run `depmod -a` after upgrading.
-
-## Upstreaming
-
-This is a reasonable upstream candidate. If submitted it goes as GPL-2.0 with a
-`Signed-off-by` line under the Developer Certificate of Origin, which the patch
-file already carries.
