@@ -27,7 +27,7 @@ over Moonlight most of the time. What I was after is the console experience:
 pick up the controller and the machine wakes, put it down and everything powers
 off on its own, without me thinking about any of it.
 
-I tried the obvious routes first and they were dead ends. Replacing the Windows
+I tried the usual routes first and they were dead ends. Replacing the Windows
 shell with a frontend is a reimage waiting to happen, and the one time people
 report doing it on a machine that is also a workstation, the fix was a full OS
 reinstall. GlosSI, which everyone still recommends, was archived in late 2025.
@@ -43,16 +43,16 @@ one is why some piece of this repository exists:
 | PC sleeps, controller turns off | a firmware patch, because no GameSir pad has a host-driven power-off. The Cyclone 2 does have a writable inactivity-timeout register, so the power-off is indirect: write 1 minute when the PC sleeps, 20 when it wakes |
 | battery in Home Assistant | the amber battery work, so the pad reports charge over Bluetooth and the Pi can publish it to MQTT and alert me before it dies mid-session |
 | works in Steam Big Picture | the Xbox 360 receiver emulation, because Big Picture wants XInput and a DualShock identity was not good enough for me |
-| rumble | the kernel patch, which turned out to be the hardest part of the whole project |
+| rumble | the kernel patch, the hardest part of the whole project |
 
-The Pi being independently powered is the detail that makes the rest work. It is
-fed from the wall through a USB-C OTG splitter and passes gadget data through to
-the PC, so it survives a full shutdown and can still wake the machine. Before
-that it was parasitically powered by the PC and died every time the PC did,
-which is fatal when its job is turning the PC back on.
+The Pi has to be independently powered or none of this works. It is fed from
+the wall through a USB-C OTG splitter and passes gadget data through to the PC,
+so it survives a full shutdown and can still wake the machine. My first setup
+had it powered from the PC's USB port, so it died every time the PC did, which
+defeats the point when its job is turning the PC back on.
 
-None of the firmware work was the goal. I got into the firmware because the
-features I wanted did not exist and the pad would not tell me why.
+None of the firmware work was the goal. I ended up in the firmware because the
+features I wanted did not exist and there was no other way to find out why.
 
 ## Why the pad is interesting
 
@@ -68,20 +68,19 @@ own Bluetooth address, report format, and set of working features:
 | BT XInput | not measured | yes | no | yes | no | |
 | BT Steam | not measured | yes | no | yes | no | |
 
-Audio is 2.4G only by construction, not by omission: the SBC codec setup is
-gated on the mode variable, so the headphone jack cannot work in the Bluetooth
-modes.
+Audio only works over 2.4G. The SBC codec setup is gated on the mode variable,
+so the headphone jack cannot work in any of the Bluetooth modes.
 
 The "2.4GHz dongle" is itself a second BR23 speaking ordinary Bluetooth, so a
 Raspberry Pi can stand in for it. That is how the LED, rumble and audio paths
 were explored without a spare dongle.
 
-Most of the work below is about closing the gaps in that table.
+Most of what follows is about closing the gaps in that table.
 
 Because the Bluetooth address differs per mode, the pad can stay bonded to one
 host in amber and another host in a different mode at the same time, and you
-switch between them with the mode combo instead of re-pairing. That turned out
-to be useful: the Pi keeps the amber bond for wake and battery, while the PC can
+switch between them with the mode combo instead of re-pairing. That is
+useful: the Pi keeps the amber bond for wake and battery, while the PC can
 hold a direct bond in another mode for desk play.
 
 ## Disclaimer
@@ -134,7 +133,8 @@ reimplementation.
 
 ## Licence
 
-Three different things live here, and they cannot all carry the same licence.
+Three different kinds of thing live here and they cannot all carry the same
+licence.
 
 | what | licence | why |
 |---|---|---|

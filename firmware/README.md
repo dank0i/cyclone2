@@ -38,21 +38,20 @@ values here to a dump of your own device.
 
 ## Methodology
 
-The offsets below only matter if you own this controller. The process
-generalises, so it goes first. Every item is something that actually cost time
-here.
+The offsets further down only matter if you own this controller. What follows
+in this section is the part that carries over to other work, and each item is
+here because it cost me time.
 
-### Verify the tool before trusting its output
+### The disassembler was wrong
 
 The pi32v2 SLEIGH module renders byte-load addresses incorrectly (see
 [below](#a-sleigh-bug-byte-load-addresses-are-wrong)). Every global read off a
 byte load was wrong by a nibble position, which is why xref hunting for globals
-kept failing.
+kept failing for so long. Once you know a decompiler can be wrong at that
+level, everything it says becomes a hypothesis to check against the raw
+encoding, and where possible against the running device.
 
-Decompiler output is a hypothesis. When a finding matters, confirm it against
-the raw encoding, and where possible against the running device.
-
-### Make sure your harness can produce a positive result
+### Negative results from a broken harness
 
 The most expensive mistake in this project was a long run of careful negative
 experiments performed on an apparatus incapable of returning a positive.
@@ -60,16 +59,13 @@ experiments performed on an apparatus incapable of returning a positive.
 On the bridge side, every USB descriptor variation was tested against a gadget
 framework that never delivered an output packet under *any* configuration.
 Endpoint sizes, intervals, descriptor types, interface counts: correctly
-tested, correctly negative, entirely meaningless. What broke the deadlock was
-not another variation but a control experiment: *has this path ever carried a
-single byte?*
+tested, correctly negative, entirely meaningless. What broke the deadlock was a
+control experiment rather than another variation: *has this path ever carried
+a single byte?* It had not, and that made every prior result void.
 
-So before trusting a negative result, check that the setup is capable of
-producing a positive one.
+### Metrics that look principled and are not
 
-### Beware metrics that look principled
-
-Two examples from this project, both of which sent work in the wrong direction:
+Two of these sent work in the wrong direction:
 
 **Entropy does not identify the right decryption key here.** On a region with a
 known-correct root, an entropy sweep ranked the true key at **7.8439 against a
@@ -81,22 +77,24 @@ number of `0x00` bytes after decryption, ranks the true root first.
 consistent hits where the correct one produced fewer. Structural markers, such
 as recognisable strings and all-zero blocks, are the discriminator.
 
-Validate any scoring metric against a region whose answer you already know
-before trusting it on a region you do not.
+Both were caught the same way, by scoring a region whose answer was already
+known and seeing the metric get it wrong.
 
-### Measure under load, not at idle
+### Idle and loaded are different numbers
 
-2.4G idles at 3.75 ms between reports and runs at 2.50 ms under stick motion.
-Any latency figure from a resting controller measures the idle path. Amber
-happens to be flat, but you only learn that by measuring both.
+2.4G idles at 3.75 ms between reports and runs at 2.50 ms under stick motion,
+so a latency figure taken from a resting controller is measuring the idle path
+and nothing else. Amber happens to be flat, but that only shows up if you
+measure both.
 
-### Print sample counts, because a dying link fakes a win
+### A dying link looks like an improvement
 
 Raising a keepalive interval produced a visibly better gap histogram. It was
-killing the link: fewer samples, and the survivors were the good ones. Any
-metric over a variable-size sample needs its sample size printed beside it.
+killing the link: fewer samples, and the survivors were the good ones. Since
+then every metric over a variable-size sample gets its sample size printed
+beside it.
 
-### Distrust a summary statistic that disagrees with the raw data
+### A summary statistic that disagreed with its own data
 
 My own measurement script reported 304 Hz for a run whose mean gap was 4.36 ms.
 Both cannot be true, since `1000 / 4.36` is 229. It was splitting a capture into
@@ -105,28 +103,28 @@ second bucket while the rate was computed against the shorter phase length, so
 roughly 24 seconds of gaps got divided by 18 seconds. That inflates by exactly
 the ratio you would expect.
 
-The mean and the percentiles were right the whole time. When a rate disagrees
-with `1000 / mean`, the mean is the one to believe.
+The mean and the percentiles were right the whole time, and `1000 / mean` is
+now the first thing I check a reported rate against.
 
-### Compute the physical ceiling before optimizing
+### The ceiling was physical, not firmware
 
-Effort went into raising the 2.4G report rate before anyone established what
-the transport could carry. Once report sizes were measured on the wire, the
-answer fell out of air time: 2.4G was already at 85% of its physical ceiling.
-See [Where the ceiling actually is](#where-the-ceiling-actually-is).
+A fair amount of effort went into raising the 2.4G report rate before I had
+established what the transport could carry. Once report sizes were measured on
+the wire, the answer fell out of air time: 2.4G was already at 85% of its
+physical ceiling. See [Where the ceiling actually is](#where-the-ceiling-actually-is).
 
-### Find the computation, not the symbol
+### Xrefs do not exist for base-register loads
 
 Loads through a base register plus offset produce no Ghidra xrefs, so searching
 for references to a global finds nothing even when dozens of sites use it.
-Battery was solved by locating the ADC averaging function and reading outward,
-after xref hunting had failed repeatedly.
+Battery was solved by locating the ADC averaging function and reading outward
+from the computation, after hunting for the symbol had failed repeatedly.
 
-### Locate patch sites by unique byte pattern, not address arithmetic
+### Address arithmetic versus byte patterns
 
 An off-by-2 in the address mapping survived a long time because it usually
-landed on the right byte anyway. Patch builders here search for a pattern and
-assert uniqueness:
+landed on the right byte anyway. The patch builders now search for a byte
+pattern and assert that it is unique:
 
 ```
 pattern 03 ff 04 20 5b 06   ->  exactly 1 occurrence  ->  safe to patch
@@ -134,30 +132,25 @@ pattern 03 ff 04 20 5b 06   ->  exactly 1 occurrence  ->  safe to patch
 
 If the pattern is not unique the build fails rather than guessing.
 
-### Verify the encoding, not just the byte
+### The byte was right and the operand was wrong
 
 One patch generator matched the wrong byte of a 2-byte instruction. Twenty
 edits "verified" clean because in those instructions the register field
 happened to hold the value being searched for. Applied, it would have changed
-destination registers throughout.
+destination registers throughout. Since then every edit gets decoded before it
+is written, to confirm the operand at that offset is the one I think it is.
 
-Decode what you are about to change, and confirm the operand at that offset is
-the operand you think it is.
-
-### Confirm you are patching the site that serves your case
+### Six gates, one of which mattered
 
 The first attempt at raising the 2.4G report rate changed an in-flight gate and
-did nothing. The reason was not that the gate was the wrong *kind* of
-constraint. There are **six** in-flight gates in this firmware; exactly one
-serves 2.4G and the other five serve the Bluetooth modes. The patch had landed
-on a Bluetooth gate, past the point where the 2.4G branch ends, so it was never
-testing what it appeared to test.
+did nothing. The gate was the right *kind* of constraint. There are just six
+in-flight gates in this firmware, one serving 2.4G and five serving the
+Bluetooth modes, and the patch had landed on a Bluetooth one, past the point
+where the 2.4G branch ends. It was never testing what it appeared to test, and
+a null result from the wrong site looks the same as a null result from the
+right one.
 
-A null result from the wrong site looks exactly like a null result from the
-right one, so it is worth confirming the site serves the case you are testing
-before drawing conclusions from it.
-
-### Gate anything destructive
+### Gates on anything destructive
 
 1. dump the live device first and record the hash
 2. build the patch from *that dump*, never from a pristine image
@@ -286,8 +279,8 @@ None of this needs reimplementing. Kagaimiq's tools handle it:
 python jl-misctools/firmware/fwunpack_newfw.py --dirname out cyclone2_fw.bin
 ```
 
-The account above is here to explain the parameters and the traps, not to
-replace the tool.
+The description above explains the parameters and the traps. The tool does
+the work.
 
 ---
 
@@ -359,7 +352,7 @@ cannot dump. It does not; it is sitting in the file you already have.
 so `FUN_01e6864c` in single-block decompiles is the same thing as
 `0x020016F8`, the 2 ms joypad callback, under two different names.
 
-### Addresses not worth chasing
+### Addresses that lead nowhere
 
 `0x01c7xxxx` / `0x01c8xxxx` are all `malloc`, `free` and `memcpy`. `memread`
 returns zeros there in loader mode, and nothing in the timer path leaves
@@ -385,9 +378,9 @@ The pad also uses a **different Bluetooth address per mode**, so a host paired
 in one mode does not see it in another. On this unit the amber address ends
 `...F8`, Switch Pro `...FA`, and the 2.4G pairing mode `...F5`.
 
-That has a practical consequence worth knowing: the pad can hold a bond with one
-host in amber and a different host in another mode at the same time, and you
-choose between them with the mode combo rather than by re-pairing.
+One practical consequence: the pad can hold a bond with one host in amber and a
+different host in another mode at the same time, and you choose between them
+with the mode combo rather than by re-pairing.
 
 The amber report is report `0x07`, 11 bytes, and entirely standard HID:
 
@@ -399,7 +392,7 @@ id |  X  Y  Z  Rz | hat| 16 buttons | L2 R2 | pad
 Four axes at 0-255 centred on `0x80`, a 4-bit hat, 16 buttons, and two analog
 triggers. Byte 10 is the padding byte that the battery patch later reclaims.
 
-The IMU is an LSM6DS3. Audio is 2.4G only by construction: SBC encode and decode
+The IMU is an LSM6DS3. Audio is 2.4G only: SBC encode and decode
 initialisation is gated on `DAT_0000a0b0 == 1`, so the headphone jack cannot
 work over Bluetooth in any mode, patched or not.
 
@@ -407,8 +400,8 @@ work over Bluetooth in any mode, patched or not.
 
 ## The dongle firmware
 
-The 2.4G dongle is a second BR23 with its own firmware, and it is worth dumping
-even if you only care about the pad. It is the reference implementation of the
+The 2.4G dongle is a second BR23 with its own firmware. Dump it even if you only
+care about the pad. It is the reference implementation of the
 protocol the pad speaks: the 25-byte output block layout came from
 reverse-engineering the dongle's own report sender (`FUN_01e0c26a`, which uses
 that layout for report IDs `0xb1` through `0xe2`), not from guessing at captures.
@@ -481,7 +474,7 @@ means a Raspberry Pi with a normal Bluetooth adapter can take its place, which
 is how the LED, rumble and audio paths were explored without owning a second
 dongle.
 
-Three things make it awkward, and all three have to be handled together.
+Three things make it awkward. All three have to be handled at once.
 
 ### It bypasses SDP
 
@@ -534,7 +527,7 @@ and the pad simply behaves as though it is idle rather than reporting an error.
 Fixing it took the link from 10 Hz to 166 Hz and lit the LED in the same change.
 
 `block[14]` selects which report personality the pad sends. `0x00` gives the
-full report including LED, and is the one worth using. A real dongle runs at
+full report including LED, and is the one to use. A real dongle runs at
 roughly 200 Hz.
 
 Wrong bytes elsewhere in the block are not ignored either: the pad drops the
@@ -557,8 +550,8 @@ and re-encrypt only the changed bytes. Recover the keystream as
 `orig_decrypted XOR orig_cipher` so any live dump can be handled.
 
 `0x01E0011E` is a tempting value for the base and it is wrong by two. It lands
-on the intended byte often enough that a patch built against it can work, which
-is what makes it worth stating.
+on the intended byte often enough that a patch built against it can still work,
+which is how it survives.
 
 ---
 
@@ -584,7 +577,7 @@ ef1d -> e88d    e91b -> e82b    e91c -> e82c    e91d -> e82d
 ec14 -> e854    ec15 -> e855
 ```
 
-### Demonstrated by construction
+### Demonstrated with hand-assembled instructions
 
 The clearest evidence is synthesised instructions assembled by hand and fed
 through the module. Identical bit fields, load versus store:
@@ -626,8 +619,8 @@ throughout the joypad task, is really **`0xE82B`**.
 
 Halfword (`50ed` / `51ed`) and word forms are unaffected.
 
-This is worth reporting upstream. It is a silent correctness bug, not a display
-quirk.
+This is a correctness bug in the module, not a display quirk. Addresses read
+through this form are wrong until corrected by hand.
 
 ### Three more rendering defects
 
@@ -662,8 +655,8 @@ printed on its own line:
 Read naively, both stores appear to write the same register and the first looks
 redundant. They write different values.
 
-It is worth being precise about this, because it is tempting to call it delayed
-writeback and reason about it as a pipeline hazard. It is neither. The processor
+It is tempting to call this delayed writeback and reason about it as a pipeline
+hazard. It is neither. The processor
 module handles it and marks it, and the `.slaspec` says so directly: for a
 prefix of 6 the instruction is parallelised and the next one executes first.
 
@@ -701,8 +694,8 @@ search for them finds nothing. To enumerate call sites, decode every offset
 where `b[1] == 0xEA` and `0x80 <= b[0] <= 0xBF`. That is how the timer walker's
 single caller was found after Ghidra reported no references at all.
 
-`pi32asm.py` assembles the subset needed for patching. Having an independent
-encoder is worth the effort: the processor module's own README notes that
+`pi32asm.py` assembles the subset needed for patching. An independent encoder
+earns its keep here because the processor module's own README notes that
 pi32v2 coverage is incomplete.
 
 ---
@@ -765,9 +758,8 @@ wrong answers first.
 
 ### What the 166 Hz figure actually is
 
-One thing to be clear about before the numbers below: **166 Hz was measured
-against a 2.4G dongle emulator running on the Pi**, not against GameSir's own
-dongle, which does about 200 Hz.
+Before the numbers: **166 Hz was measured against a 2.4G dongle emulator
+running on the Pi**, not against GameSir's own dongle, which does about 200 Hz.
 
 The emulator had been stuck at 10 Hz until an inverted checksum was fixed. The
 block checksum is plain `zlib.crc32`, that is, **with** the final XOR:
@@ -1148,12 +1140,12 @@ GS_C2_ADC_DEVICE     the controller
 GS_C2_Dongle         the 2.4G dongle
 ```
 
-This is worth using as a gate because it comes off the flash itself rather than
-from a USB descriptor, so it cannot be spoofed by whatever the device is
-currently pretending to be, and it does not depend on firmware version. It reads
+Use this as the gate. It comes off the flash itself rather than from a USB
+descriptor, so it cannot be spoofed by whatever the device is currently
+pretending to be, and it does not depend on firmware version. It reads
 the same on pad firmware 3.26 and 3.52, and on dongle firmware 1.19 and 1.21.
 The two chips take completely different images, so writing one to the other is
-the obvious way to lose a device.
+the easiest way to lose a device.
 
 ```
 1. dump the live device, record the hash
@@ -1193,7 +1185,7 @@ catches before anything reaches the device.
 
 ## Things that did not work
 
-Each of these was a plausible theory that tested clean and was still wrong.
+Every one of these looked right and tested clean at the time.
 
 ### The 1 ms tick (flashed, then reverted)
 
@@ -1257,11 +1249,10 @@ The pi32v2 processor module does not decode the 4-byte instruction `0xe53f`
 340 within 0x600 of a function entry  ->  code, not data
 ```
 
-Upstream confirms it is genuinely unknown: the module's own TODO lists
-"remaining missing instructions" for pi32v2.
+The module's own TODO lists "remaining missing instructions" for pi32v2, so
+this is not a decoding oversight on my side, it is unimplemented.
 
-Decoding it and writing a SLEIGH rule would complete coverage of the image and
-would be a contribution to the processor module itself.
+Decoding it and writing a SLEIGH rule would complete coverage of the image.
 
 Two things not to expect from it. The undecoded remainder is not all blocked by
 `0xe53f`; a good part of it is genuine data, string tables and constants. And it
@@ -1269,5 +1260,5 @@ does not hold the idle counter, which came out of the decoded portion anyway
 (`0xe8d8`, threshold `DAT_00014efd`, sleep flag `0xe843`, event poster
 `FUN_01e3f5d8`).
 
-So it is completeness and an upstream fix rather than a hidden secret, but it is
-a well-scoped problem if that sort of thing appeals to you.
+So the payoff is completeness rather than a hidden secret. It is a well-scoped
+problem if that sort of thing appeals to you.

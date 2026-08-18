@@ -25,7 +25,7 @@ Measured: 400 Hz end to end, USB high speed, 125 us endpoint interval.
 
 ---
 
-## The finding that makes this work
+## Why no stock gadget framework works
 
 Emulating an Xbox 360 receiver needs two things at once:
 
@@ -43,17 +43,15 @@ No stock Linux USB gadget framework does both.
 | configfs `f_hid` | n/a, HID only | yes |
 
 raw-gadget is the one to watch out for. It accepts input indefinitely,
-`xusb22` binds, the
-controller appears in Windows, `XInputGetState` returns success with a climbing
-packet counter, and Steam enumerates it. Meanwhile `EP_READ` on the OUT endpoint
-blocks forever and never returns a byte, with no errors, while the endpoint is
-enabled and its address is correct.
+`xusb22` binds, the controller appears in Windows, `XInputGetState` returns
+success with a climbing packet counter, and Steam enumerates it. Meanwhile
+`EP_READ` on the OUT endpoint blocks forever and never returns a byte, with no
+errors, while the endpoint is enabled and its address is correct.
 
-That combination sends you looking at Windows, at `xusb22`, at the descriptor,
-or at the Xbox security handshake. The fault is none of those, it is the gadget
-framework underneath.
+Everything about that points at Windows, at `xusb22`, at the descriptor, or at
+the Xbox security handshake. The problem is the gadget framework underneath.
 
-### How to tell quickly
+### A quick test
 
 Windows sends the **LED/player-slot command unprompted** when a 360 controller
 connects, before any game runs. If you see no OUT traffic at all, the pipe was
@@ -225,11 +223,11 @@ rather than "I am sending a constant".
 
 ### Battery type, and why Steam ignored it
 
-For a while this bridge reported a correct battery *level* to Windows while
-Steam showed no battery at all. The two facts are connected, and the link is a
-mapping inside `xusb22.sys` that no public implementation documents.
+It is possible to report a correct battery *level* to Windows and still have
+Steam show no battery at all. The cause is a mapping inside `xusb22.sys` that
+no public implementation documents.
 
-Steam reads XInput battery through SDL, and SDL gates on the **type** before it
+Steam reads XInput battery through SDL, and SDL checks the **type** before it
 looks at the level:
 
 ```c
@@ -239,11 +237,10 @@ if (state == ON_BATTERY || CHARGING) percent = ...;  else percent = -1;
 ```
 
 `UNKNOWN` means Steam discards the battery entirely, whatever level you send.
-And Windows was reporting `type = 255`.
 
-Decompiling `xusb22.sys` (10.0.26100.8972) shows why. The State packet decoder
-takes type from byte 4 bits 1-2, and then a second function maps that wire
-value before handing it to the API:
+Decompiling `xusb22.sys` (10.0.26100.8972) shows how the type is derived. The
+State packet decoder takes it from byte 4 bits 1-2, and a second function then
+maps that wire value before handing it to the API:
 
 | wire value (byte 4 bits 1-2) | XInput `BatteryType` |
 |---|---|
@@ -252,12 +249,12 @@ value before handing it to the API:
 | 2 | 0xFF, UNKNOWN |
 | 3 | 0xFF, UNKNOWN |
 
-Two of the four values are invalid, and the "obvious" NiMH constant from the
-public header (`3`) is one of them. Send **0** for NiMH. With that, Windows
-reports `type=3, level=n`, SDL treats it as a real battery, and Steam shows a
-percentage and fires its low-battery notice.
+Two of the four values are invalid, and the NiMH constant from the public
+header (`3`) is one of them, so copying it onto the wire is a natural mistake.
+Send **0** for NiMH. Windows then reports `type=3, level=n`, SDL treats it as
+a real battery, and Steam shows a percentage and fires its low-battery notice.
 
-Two other things worth knowing from the same investigation:
+Two other things from the same investigation:
 
 - SDL's hidapi driver for the 360 receiver, which parses `00 00 00 13 <level>`
   on a 0-255 scale, is **not** the path Windows uses. `xusb22` owns the USB
@@ -271,8 +268,7 @@ Two other things worth knowing from the same investigation:
 
 ## Bluetooth: making the pairing survive a reboot
 
-Two separate problems, and they will both bite anyone bridging a BR/EDR HID
-device.
+Two separate problems. Both apply to anyone bridging a BR/EDR HID device.
 
 ### 1. HID rejected as `!bonded`
 
