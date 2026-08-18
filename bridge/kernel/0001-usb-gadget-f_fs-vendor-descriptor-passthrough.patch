@@ -1,0 +1,50 @@
+From: dank0i
+Subject: [PATCH] usb: gadget: f_fs: pass through vendor descriptors on
+ vendor-class interfaces
+
+SPDX-License-Identifier: GPL-2.0-only
+
+ffs_do_single_desc() rejects any descriptor type it does not model, and a
+single rejection fails the entire descriptor set. This makes functionfs
+unusable for devices whose interface must carry a vendor-defined descriptor.
+
+The Xbox 360 controller and wireless receiver are the motivating case. They
+carry Microsoft's XUSB descriptor, type 0x21 (wired) or 0x22 (adapter), on an
+interface of class 0xFF, subclass 0x5D. Type 0x21 lands in the
+USB_TYPE_CLASS | 0x01 case and is rejected there because the interface class is
+not HID, CCID or DFU; type 0x22 reaches the default case. Without that
+descriptor Windows' xusb22 driver will not instantiate a controller, so the
+device enumerates but is never usable as a gamepad.
+
+Accept both types verbatim, scoped to vendor-specific interfaces, so no
+standard class parsing behaviour changes.
+
+Tested on a Raspberry Pi (dwc2) presenting an Xbox 360 Wireless Receiver to
+Windows: the controller is created, XInput input is delivered, and output
+reports (rumble, LED ring) arrive on the OUT endpoint.
+
+Signed-off-by: dank0i <aryanmalhotra796@gmail.com>
+---
+--- a/drivers/usb/gadget/function/f_fs.c
++++ b/drivers/usb/gadget/function/f_fs.c
+@@ -2535,6 +2535,20 @@
+ 		}							\
+ 	} while (0)
+ 
++	/* Vendor-specific interfaces may legitimately carry descriptor types
++	 * this parser does not model - the Xbox 360 XUSB descriptors 0x21
++	 * (wired) and 0x22 (adapter) are the case in point. Upstream rejects
++	 * them, which kills the ENTIRE descriptor set, so functionfs cannot be
++	 * used for an XInput device at all. Accept them verbatim, but ONLY on
++	 * a vendor-specific interface, so no standard class parsing changes.
++	 */
++	if (*current_class == 0xFF &&
++	    (_ds->bDescriptorType == 0x21 || _ds->bDescriptorType == 0x22)) {
++		pr_vdebug("vendor passthrough descriptor: %d\n",
++			  _ds->bDescriptorType);
++		return length;
++	}
++
+ 	/* Parse descriptor depending on type. */
+ 	switch (_ds->bDescriptorType) {
+ 	case USB_DT_DEVICE:

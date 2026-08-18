@@ -1,0 +1,31 @@
+# Never commit vendor firmware or anything derived from it.
+# The repository documents findings; the images themselves are not ours to
+# redistribute. See README.md.
+*.bin
+*.img
+*.hex
+*.dump
+originals/
+decrypted/
+patch/*.bin
+
+# Decompiler output is a derivative work of the vendor firmware.
+*_decomp.c
+decomp/
+
+# Build artefacts
+*.ko
+*.o
+*.mod
+*.mod.c
+modules.order
+Module.symvers
+.tmp_versions/
+__pycache__/
+*.pyc
+.venv/
+
+# Local scratch
+*.log
+*.bak
+*.orig
