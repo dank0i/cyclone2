@@ -1235,7 +1235,7 @@ descriptor needed changing.
 ### Entropy sweeps for key recovery
 
 Ranked the known-correct root below median. Covered under
-[Methodology](#beware-metrics-that-look-principled).
+[Methodology](#metrics-that-look-principled-and-are-not).
 
 ---
 
