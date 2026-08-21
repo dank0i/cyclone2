@@ -40,7 +40,7 @@ one is why some piece of this repository exists:
 | what I wanted | what it forced |
 |---|---|
 | controller turns on, PC wakes | a Pi in-line on USB that stays powered when the PC is off, sending Wake-on-LAN |
-| PC sleeps, controller turns off | a firmware patch, because no GameSir pad has a host-driven power-off. The Cyclone 2 does have a writable inactivity-timeout register, so the power-off is indirect: write 1 minute when the PC sleeps, 20 when it wakes |
+| PC sleeps, controller turns off | two firmware patches, because no GameSir pad has a host-driven power-off. One adds a power-off command; the other routes amber's Bluetooth reports into the dispatcher so that command is reachable in the mode I actually play in. Before that patch the only route was indirect, writing the inactivity-timeout register down to 1 minute when the PC slept |
 | battery in Home Assistant | the amber battery work, so the pad reports charge over Bluetooth and the Pi can publish it to MQTT and alert me before it dies mid-session |
 | works in Steam Big Picture | the Xbox 360 receiver emulation, because Big Picture wants XInput and a DualShock identity was not good enough for me |
 | rumble | the kernel patch, the hardest part of the whole project |
@@ -61,7 +61,7 @@ own Bluetooth address, report format, and set of working features:
 
 | mode | rate | rumble | battery | LED | audio | notes |
 |---|---|---|---|---|---|---|
-| amber, BT DInput | 481 Hz | yes | after patch | after patch | no | fastest mode |
+| amber, BT DInput | 481 Hz | yes | after patch | after patch | no | fastest mode; host power-off after patch |
 | 2.4G dongle | 166 Hz, 230 after patch | yes | in report | yes | yes | 7.3x the payload |
 | Switch Pro | 462 Hz | native | native | yes | no | loses analog triggers |
 | PS4 / DS4 | not measured | yes | yes | yes | no | Steam reads it natively |

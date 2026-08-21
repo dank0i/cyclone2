@@ -891,11 +891,12 @@ Measured amber on current firmware: **481.2 Hz**, with gaps falling at
 
 ## The patches
 
-Six are currently flashed and running:
+Seven are currently flashed and running:
 
 | patch | what it does |
 |---|---|
 | poweroff | adds a power-off command the stock firmware does not expose |
+| vendor dispatch | routes amber's Bluetooth output reports into the command dispatcher, so poweroff works in the mode I actually use |
 | divider | removes the 2.4G 4:1 send divider, 166 -> 230 Hz |
 | in-flight | raises an in-flight threshold, but on a Bluetooth gate rather than the 2.4G one, so it changes nothing useful |
 | amber LED | gives amber mode a working RGB path |
@@ -929,6 +930,69 @@ bytes leaves the remainder as dead code and touches nothing else.
 
 Ten bytes differ from stock in total: 6 code bytes, plus 4 for `data_crc` and
 `hdr_crc` so boot-time integrity checks pass.
+
+### Reaching the dispatcher from Bluetooth
+
+The power-off command above is real, but for a long time it was unreachable in
+the mode I actually use. The dispatcher that decodes `(0x0F, cmd)` is only
+called from the 2.4G branch of the output-report handler. In amber, Bluetooth
+DInput, the same handler takes a different path and the command bytes are never
+looked at.
+
+`FUN_01e3b6e0` is that handler. It switches on the mode variable at `0xA0B0`:
+
+```
+01e3b728  mov r0,#0xa0b0 ; lb.z r0,[r0+0]     mode
+01e3b730  je   r0,0x1,0x01e3b77a              2.4G, and it has the vendor dispatch
+01e3b734  jbe  r0,#0x2,0x01e3b920             amber, skip to the end
+01e3b738  if ((r7 & #0x1) != 0) {             flags bit 0, guards the rumble stores
+01e3b748  }  jmnz r7,#0x4,0x01e3b920          flags bit 2 set, skip the RGB stores
+01e3b754  jmz  r0,#0xff,0x01e3b920            reject all-zero RGB
+01e3b75a  add  r0,r9,#0xa0 ; sb x3            RGB -> 0xE8B0/B1/B2
+```
+
+The patch overwrites the all-zero RGB guard, which is the only six bytes in the
+amber path that can be spared:
+
+```
+app.bin 0x3B634   (address 0x01e3b754, flash 0x3F774)
+before  60 ff ff 00 e3 00    jmz r0,#0xff,0x01e3b920
+after   48 88 bf ea b0 a0    add r0,r4,#0x8 ; call 0x01e2f8ba
+```
+
+`r4` is the report buffer, so `r4+8` points at byte 8 and the dispatcher takes
+its command bytes from there. It self-gates on `[r0+0] == 0x0F` before doing
+anything, so an ordinary report falls straight through and the RGB stores below
+run exactly as they did before.
+
+Losing the guard is not free, and it is the one behaviour change: an all-zero
+RGB value used to be rejected and now blanks the LED. That turned out to be
+worth having, because it is the only observable effect that can come from
+nothing except the patch being present, which makes it the test that proves the
+patched bytes execute at all.
+
+**Flags bit 0 has to be set.** The `if ((r7 & #0x1) != 0)` at `0x01e3b738` is a
+conditional-execution prefix and it covers more than the rumble stores that
+follow it. Clear bit 0 and the whole block, patched call included, is skipped.
+Every early test used a flags byte with bit 0 clear, on the reasoning that it
+would stop ordinary DS4 rumble from muddying the result, and every one of them
+looked exactly like a command that did nothing. The reasoning was sound and the
+conclusion was wrong.
+
+So the report that works is a DS4-style `0x11` with byte 3 = `0xF3`:
+
+```
+byte  0    1    2    3     8     9
+      11   C0   20   F3    0F    <cmd>
+```
+
+**Verified.** Command `0x20` fired the motors with the DS4 rumble bytes zeroed,
+which they could only do by way of the dispatcher, and command `0x16` powered
+the pad off. The control matters more than either result: 45 seconds of `0x20`
+down this exact path left the pad connected and writable, and changing the one
+command byte to `0x16` killed it in 8.4 seconds, twice, at the same 8.4 seconds
+both times. That pairing is what rules out the pad's own idle timeout and the
+write volume, which had each already produced a false positive earlier.
 
 ### The command table, and where to add your own
 
@@ -966,7 +1030,12 @@ shortly after you stop using it. Two things to know:
   worst case is a full minute.
 
 The vendor protocol is only live in **XInput mode**. In PS4 or Switch mode the
-pad enumerates as Sony or Nintendo and the vendor interface does not exist.
+pad enumerates as Sony or Nintendo and the vendor interface does not exist. The
+dispatch patch above lifts that restriction for the command table specifically,
+reaching it from amber over Bluetooth, verified for commands `0x16` and `0x20`.
+The registers in this section go through the same dispatcher, so they ought to
+be reachable the same way, but I have not tested them over Bluetooth and would
+not assume it.
 
 Two more things about that interface, both of which cost time to learn:
 
